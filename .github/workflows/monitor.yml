@@ -1,0 +1,61 @@
+name: Product Availability Monitor
+
+on:
+  schedule:
+    # Run every 1 hr
+    - cron: '0 * * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4 lxml
+    
+    - name: Load previous status
+      uses: actions/cache@v3
+      with:
+        path: status.json
+        key: product-status-${{ runner.os }}
+    
+    - name: Run product monitor
+      env:
+        EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        TO_EMAIL: ${{ secrets.TO_EMAIL }}
+      run: |
+        python monitor.py
+    
+    - name: Save status
+      uses: actions/cache@v3
+      with:
+        path: status.json
+        key: product-status-${{ runner.os }}-${{ github.run_id }}
+    
+    # Optional: Upload logs as artifacts
+    - name: Upload logs
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: monitor-logs
+        path: |
+          *.log
+          status.json
