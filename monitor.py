@@ -4,47 +4,120 @@ Product Availability Monitor for GitHub Actions
 Checks products and sends email notifications when available
 """
 
-import requests
 import smtplib
 import os
 import json
-from bs4 import BeautifulSoup
+import sys
+from playwright.sync_api import sync_playwright, TimeoutError
 from email.mime.text import MIMEText
 from datetime import datetime
 
-def check_product(url, selector, keywords):
-    """Check if product is available"""
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
-        print(f"Checking: {url}")
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.content, 'html.parser')
-        element = soup.select_one(selector)
-        
-        if not element:
-            print(f"❌ Element not found with selector: {selector}")
-            return False, "Element not found"
+def check_product_availability(url: str, pincode: str, pincode_input_selector: str, pincode_select_selector: str, cart_button_selector: str):
+    """
+    Checks product availability by finding the 'Add to Cart' button and checking if it is enabled.
+    """
+    with sync_playwright() as p:
+        browser = None
+        try:
+            print("🚀 Launching browser...")
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+
+            print(f"Navigating to {url}...")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+            print(f"✍️ Typing pincode '{pincode}' into input '{pincode_input_selector}'...")
+            page.locator(pincode_input_selector).fill(pincode)
             
-        text = element.get_text().strip().lower()
-        print(f"Found text: {text[:100]}...")
+            print(f"🖱️ Clicking on pincode dropdown element '{pincode_select_selector}'...")
+            page.locator(pincode_select_selector).click()
+            
+            # --- IMPROVED BUTTON CLICKABILITY CHECK ---
+            print(f"🧐 Locating the 'Add to Cart' button ('{cart_button_selector}')...")
+            
+            # First, wait for the button to exist and be visible on the page.
+            cart_button = page.locator(cart_button_selector)
+            cart_button.wait_for(state="visible", timeout=15000)
+            
+            # Multi-step check to determine if button is truly clickable
+            is_clickable = check_button_clickability(page, cart_button)
+            
+            if is_clickable:
+                print("✅ Product is IN STOCK ('Add to Cart' button is clickable).")
+                return True, "In Stock"
+            else:
+                print("❌ Product is OUT OF STOCK ('Add to Cart' button is not clickable).")
+                return False, "Out of Stock"
+
+        except TimeoutError:
+            # This error now means the 'Add to Cart' button was not found at all.
+            print("❌ CRITICAL ERROR: Could not find the 'Add to Cart' button.", file=sys.stderr)
+            print("The website structure may have changed, or the page failed to load properly.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ An unexpected error occurred: {e}", file=sys.stderr)
+            sys.exit(1)
+        finally:
+            if browser:
+                browser.close()
+                print("Browser closed.")
+
+def check_button_clickability(page, button):
+    """
+    Comprehensive check to determine if a button is truly clickable
+    """
+    try:
+        # Check 1: Traditional disabled attribute
+        if not button.is_enabled():
+            print("❌ Button is disabled (disabled attribute)")
+            return False
         
-        # Check if any available keywords are present
-        for keyword in keywords:
-            if keyword.lower() in text:
-                print(f"✅ Found keyword: {keyword}")
-                return True, f"Found: {keyword}"
-                
-        print(f"❌ No availability keywords found")
-        return False, f"Current status: {text[:50]}..."
+        # Check 2: Check for disabled-looking CSS classes
+        button_classes = button.get_attribute('class') or ""
+        disabled_classes = ['disabled', 'inactive', 'not-available', 'sold-out', 'out-of-stock']
         
+        for disabled_class in disabled_classes:
+            if disabled_class in button_classes.lower():
+                print(f"❌ Button has disabled class: {disabled_class}")
+                return False
+        
+        # Check 3: Check opacity (often used to visually disable buttons)
+        opacity = page.evaluate("""
+            (button) => {
+                const style = window.getComputedStyle(button);
+                return parseFloat(style.opacity);
+            }
+        """, button.element_handle())
+        
+        if opacity < 0.5:  # Very low opacity suggests disabled
+            print(f"❌ Button has low opacity: {opacity}")
+            return False
+        
+        # Check 6: Try to check if button is actually clickable by checking pointer events
+        pointer_events = page.evaluate("""
+            (button) => {
+                const style = window.getComputedStyle(button);
+                return style.pointerEvents;
+            }
+        """, button.element_handle())
+        
+        if pointer_events == 'none':
+            print("❌ Button has pointer-events: none")
+            return False
+        
+        # Check 7: Final test - try to hover and see if it responds
+        try:
+            button.hover(timeout=2000)
+            print("✅ Button passed all clickability checks")
+            return True
+        except:
+            print("❌ Button failed hover test")
+            return False
+            
     except Exception as e:
-        print(f"❌ Error checking {url}: {str(e)}")
-        return False, f"Error: {str(e)}"
+        print(f"❌ Error checking button clickability: {e}")
+        return False
+
 
 def send_email(subject, body):
     """Send email notification using Gmail"""
@@ -104,71 +177,49 @@ def main():
     previous_status = load_previous_status()
     current_status = {}
     
-    # Configure your products here
-    products = [
-        {
-            'name': 'iPhone 15 Pro',
-            'url': 'https://www.apple.com/iphone-15-pro/',
-            'selector': '.rf-pdp-buybox',  # Apple's buy box
-            'keywords': ['buy', 'add to bag', 'available']
-        },
-        {
-            'name': 'PlayStation 5',
-            'url': 'https://www.bestbuy.com/site/sony-playstation-5-console/6426149.p',
-            'selector': '.fulfillment-add-to-cart-button',
-            'keywords': ['add to cart', 'available']
-        }
-        # Add more products here following the same pattern
-    ]
-    
     notifications_sent = 0
     
-    for i, product in enumerate(products):
-        print(f"\n📦 Checking product {i+1}/{len(products)}: {product['name']}")
+    is_available, status = check_product_availability(
+        url='https://shop.amul.com/product/amul-high-protein-plain-lassi-200-ml-or-pack-of-30',
+        pincode="560037",
+        pincode_input_selector='#search',
+        pincode_select_selector='.searchitem-name',
+        cart_button_selector='.add-to-cart[title="Add to Cart"]',
+    )
+    
+    current_status["Lassi"] = is_available
+    
+    # Send notification only if status changed to available
+    was_available = previous_status.get("Lassi", False)
+    
+    if is_available and not was_available:
+        print(f"🎉 Lassi became available!")
         
-        is_available, status = check_product(
-            product['url'], 
-            product['selector'], 
-            product['keywords']
-        )
-        
-        product_key = f"{product['name']}-{product['url']}"
-        current_status[product_key] = is_available
-        
-        # Send notification only if status changed to available
-        was_available = previous_status.get(product_key, False)
-        
-        if is_available and not was_available:
-            print(f"🎉 {product['name']} became available!")
-            
-            subject = f"🎉 {product['name']} is NOW AVAILABLE!"
-            body = f"""
+        subject = f"🎉 Amul Lassi is NOW AVAILABLE!"
+        body = f"""
 🎉 Great news! Your monitored product is now available!
 
-Product: {product['name']}
 Status: {status}
-URL: {product['url']}
 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
 
 🏃‍♂️ Go grab it now!
 
 ---
 Monitored by GitHub Actions Product Monitor
-            """
-            
-            if send_email(subject, body):
-                notifications_sent += 1
-        
-        elif is_available and was_available:
-            print(f"✅ {product['name']} still available")
-        else:
-            print(f"❌ {product['name']} not available")
+        """
+        print(body)
+        if send_email(subject, body):
+            notifications_sent += 1
+    
+    elif is_available and was_available:
+        print(f"✅ Lassi still available")
+    else:
+        print(f"❌ Lassi not available")
     
     # Save current status
     save_status(current_status)
     
     print(f"\n📊 Summary:")
-    print(f"   Products checked: {len(products)}")
     print(f"   Notifications sent: {notifications_sent}")
     print(f"   Status saved: ✅")
     print("🏁 Monitor completed!")

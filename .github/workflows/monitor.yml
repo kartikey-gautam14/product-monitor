@@ -3,7 +3,7 @@ name: Product Availability Monitor
 on:
   schedule:
     # Run every 1 hr
-    - cron: '0 * * * *'
+    - cron: '*/30 * * * *'
   
   # Allow manual trigger
   workflow_dispatch:
@@ -28,7 +28,10 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install requests beautifulsoup4 lxml
+        pip install requests beautifulsoup4 lxml playwright
+
+    - name: 4. Install Playwright Browsers
+      run: playwright install --with-deps chromium
     
     - name: Load previous status
       uses: actions/cache@v3
@@ -53,7 +56,7 @@ jobs:
     # Optional: Upload logs as artifacts
     - name: Upload logs
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: monitor-logs
         path: |
