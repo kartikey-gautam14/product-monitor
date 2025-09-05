@@ -30,6 +30,9 @@ jobs:
       run: |
         pip install requests beautifulsoup4 lxml playwright
 
+    -name: Run test
+      run: python test_script.py
+
     - name: 4. Install Playwright Browsers
       run: playwright install --with-deps chromium
     
