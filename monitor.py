@@ -124,7 +124,8 @@ def send_email(subject, body):
     try:
         from_email = os.environ.get('EMAIL_ADDRESS')
         password = os.environ.get('EMAIL_PASSWORD')
-        to_email = os.environ.get('TO_EMAIL', from_email)  # Default to same email
+        to_email = from_email
+        # to_email = os.environ.get('TO_EMAIL', from_email)  # Default to same email
         
         if not from_email or not password:
             print("❌ Email credentials not configured")
