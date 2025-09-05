@@ -39,6 +39,36 @@ jobs:
         path: status.json
         key: product-status-${{ runner.os }}
     
+    - name: Debug email variables
+      env:
+        EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        TO_EMAIL: ${{ secrets.TO_EMAIL }}
+      run: |
+        python -c "
+        import os, re
+        
+        email_addr = os.environ.get('EMAIL_ADDRESS', '')
+        to_email = os.environ.get('TO_EMAIL', '')
+        password = os.environ.get('EMAIL_PASSWORD', '')
+        
+        print('EMAIL_ADDRESS length:', len(email_addr))
+        print('TO_EMAIL length:', len(to_email))
+        print('PASSWORD length:', len(password))
+        
+        print('EMAIL_ADDRESS has @:', '@' in email_addr)
+        print('TO_EMAIL has @:', '@' in to_email)
+        
+        # Check for invisible characters
+        print('EMAIL_ADDRESS repr:', repr(email_addr[:20]))
+        print('TO_EMAIL repr:', repr(to_email[:20]))
+        
+        # Validate format
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        print('FROM email valid:', bool(re.match(email_regex, email_addr.strip())))
+        print('TO email valid:', bool(re.match(email_regex, to_email.strip())))
+        "
+
     - name: Run product monitor
       env:
         EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
