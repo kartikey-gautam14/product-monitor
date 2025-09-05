@@ -30,13 +30,6 @@ jobs:
       run: |
         pip install requests beautifulsoup4 lxml playwright
 
-    - name: Run test
-      env:
-        EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-        TO_EMAIL: ${{ secrets.TO_EMAIL }}
-      run: python test_script.py
-
     - name: 4. Install Playwright Browsers
       run: playwright install --with-deps chromium
     
