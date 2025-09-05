@@ -169,9 +169,36 @@ def save_status(status_data):
     except Exception as e:
         print(f"❌ Error saving status: {str(e)}")
 
+
+def test_gmail_connection():
+    """Test Gmail SMTP connection"""
+    try:
+        from_email = os.environ.get('EMAIL_ADDRESS')
+        password = os.environ.get('EMAIL_PASSWORD')
+        
+        if not from_email or not password:
+            return False, "Credentials missing"
+            
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(from_email.strip(), password)
+        server.quit()
+        
+        return True, "Connection successful"
+    except Exception as e:
+        return False, f"Connection failed: {str(e)}"
+
 def main():
     print("🚀 Starting Product Monitor...")
     print(f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+    # Test before sending
+    success, message = test_gmail_connection()
+    print(f"Connection test: {message}")
+    if success:
+        send_email("Test Subject", "Test Body")
     
     # Load previous status
     previous_status = load_previous_status()
@@ -180,7 +207,7 @@ def main():
     notifications_sent = 0
     
     is_available, status = check_product_availability(
-        url='https://shop.amul.com/product/amul-high-protein-plain-lassi-200-ml-or-pack-of-30',
+        url='https://shop.amul.com/en/product/amul-kool-protein-milkshake-or-vanilla-180-ml-or-pack-of-8',
         pincode="560037",
         pincode_input_selector='#search',
         pincode_select_selector='.searchitem-name',
